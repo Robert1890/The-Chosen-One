@@ -14,7 +14,7 @@ const db = firebase.firestore();
 
 (function() {
   var $ = function(id) { return document.getElementById(id); };
-  var docs = [], confirming = {}, editingPhone = {};
+  var docs = [], confirming = {}, editingCustomer = {};
 
   function today() { return new Date().toLocaleDateString('en-CA'); }
   function say(t, bad) { 
@@ -28,7 +28,7 @@ const db = firebase.firestore();
   function waLink(c) {
     var p = digits(c.phone); if (!p) return null;
     if (p.length === 9) p = '51' + p; // Prefijo Perú
-    var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One. ¡Te esperamos!';
+    var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club. ¡Te esperamos!';
     if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! Tu hamburguesa o salchipapa gratis te espera.';
     else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! Pídela en tu próxima visita.';
     return 'https://wa.me/' + p + '?text=' + encodeURIComponent(t);
@@ -93,13 +93,13 @@ const db = firebase.firestore();
     var w = waLink(c);
     if (w) { var a = el('a', 'btn alt small', 'Avisar por WhatsApp'); a.href = w; a.target = '_blank'; more.appendChild(a); }
     
-    // Botón para editar / agregar celular
-    var btnEditPhone = el('button', 'alt small', c.phone ? '✏️ Celular' : '📱 Agregar celular'); btnEditPhone.type = 'button';
-    btnEditPhone.onclick = function() {
-      editingPhone[id] = !editingPhone[id];
+    // Botón para editar Nombre y Celular
+    var btnEdit = el('button', 'alt small', '✏️ Editar datos'); btnEdit.type = 'button';
+    btnEdit.onclick = function() {
+      editingCustomer[id] = !editingCustomer[id];
       render();
     };
-    more.appendChild(btnEditPhone);
+    more.appendChild(btnEdit);
 
     var del = el('button', 'alt small', confirming[id] ? 'Confirmar eliminar' : 'Eliminar cliente'); del.type = 'button';
     del.onclick = function() {
@@ -109,18 +109,29 @@ const db = firebase.firestore();
     more.appendChild(del);
     box.appendChild(more);
 
-    // Campo de edición desplegable para el celular
-    if (editingPhone[id]) {
+    // Formulario desplegable para editar Nombre y Celular
+    if (editingCustomer[id]) {
       var editBox = el('div', 'edit-phone-box');
-      var inputPhone = el('input'); inputPhone.type = 'tel'; inputPhone.placeholder = 'Nuevo número'; inputPhone.value = c.phone || '';
-      var btnSavePhone = el('button', 'small', 'Guardar'); btnSavePhone.type = 'button';
-      btnSavePhone.onclick = function() {
-        var newP = digits(inputPhone.value);
-        patch(id, { phone: newP }, 'Celular de ' + c.name + ' actualizado.');
-        editingPhone[id] = false;
+      editBox.style.flexDirection = 'column';
+      
+      var inputName = el('input'); inputName.type = 'text'; inputName.placeholder = 'Nombre del cliente'; inputName.value = c.name || '';
+      inputName.style.marginBottom = '6px';
+      
+      var inputPhone = el('input'); inputPhone.type = 'tel'; inputPhone.placeholder = 'Número de celular'; inputPhone.value = c.phone || '';
+      
+      var btnSave = el('button', 'small', 'Guardar cambios'); btnSave.type = 'button'; btnSave.style.marginTop = '6px';
+      btnSave.onclick = function() {
+        var newName = inputName.value.trim();
+        var newPhone = digits(inputPhone.value);
+        if (!newName) { say('El nombre no puede estar vacío.', true); return; }
+        
+        patch(id, { name: newName, phone: newPhone }, 'Datos de ' + newName + ' actualizados.');
+        editingCustomer[id] = false;
       };
+
+      editBox.appendChild(inputName);
       editBox.appendChild(inputPhone);
-      editBox.appendChild(btnSavePhone);
+      editBox.appendChild(btnSave);
       box.appendChild(editBox);
     }
 
