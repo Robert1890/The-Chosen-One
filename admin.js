@@ -62,9 +62,19 @@ const db = firebase.firestore();
     box.appendChild(el('p', 'state' + (ready ? ' ready' : ''), st));
 
     var acts = el('div', 'acts');
+    
+    // Botón Sumar sello
     var b1 = el('button', null, 'Sumar sello'); b1.type = 'button'; b1.disabled = (n >= 10 || doneToday);
     b1.onclick = function() { patch(id, { n: n + 1, last: today() }, 'Sello sumado a ' + c.name + '.'); };
     acts.appendChild(b1);
+
+    // Botón Restar / Borrar sello
+    var bSub = el('button', 'alt', 'Restar sello'); bSub.type = 'button'; bSub.disabled = (n <= 0);
+    bSub.onclick = function() { 
+      var newCount = Math.max(0, n - 1);
+      patch(id, { n: newCount, last: '' }, 'Sello removido a ' + c.name + '.'); 
+    };
+    acts.appendChild(bSub);
 
     if (n >= 5 && !c.r5) {
       var b2 = el('button', 'alt', 'Canjear limonada'); b2.type = 'button';
@@ -82,7 +92,7 @@ const db = firebase.firestore();
     var w = waLink(c);
     if (w) { var a = el('a', 'btn alt small', 'Avisar por WhatsApp'); a.href = w; a.target = '_blank'; more.appendChild(a); }
     
-    var del = el('button', 'alt small', confirming[id] ? 'Confirmar eliminar' : 'Eliminar'); del.type = 'button';
+    var del = el('button', 'alt small', confirming[id] ? 'Confirmar eliminar' : 'Eliminar cliente'); del.type = 'button';
     del.onclick = function() {
       if (!confirming[id]) { confirming[id] = true; render(); return; }
       db.collection('customers').doc(id).delete();
