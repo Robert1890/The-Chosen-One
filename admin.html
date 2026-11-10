@@ -50,8 +50,9 @@
     .acts { display: flex; flex-wrap: wrap; gap: 8px; }
     .acts button, .acts .btn { flex: 1 1 140px; }
     .small { font-size: 14px; min-height: 38px; padding: 6px 10px; font-weight: 600; }
+    .edit-phone-box { display: flex; gap: 6px; margin-top: 8px; }
+    .edit-phone-box input { flex: 1; padding: 6px 10px; font-size: 14px; }
     .empty { background: var(--card); border: 2px dashed var(--muted); border-radius: 16px; padding: 20px; text-align: center; }
-    .hidden { display: none; }
   </style>
 </head>
 <body>
@@ -86,7 +87,6 @@
     </div>
   </main>
 
-  <!-- SDK Firebase CDN (Compatible) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="admin.js"></script>
