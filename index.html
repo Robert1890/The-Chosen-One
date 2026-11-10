@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mi Tarjeta | The Chosen One</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #FFF8E6; --ink: #1A1408; --card: #FFFFFF; --gold: #F5B700; --on-gold: #1A1408;
+      --line: #E8D9A8; --muted: #6B5F3E; --hero: #141008; --hero-ink: #FFC21A; --ok: #1F7A3A;
+      --display: 'Anton', Impact, sans-serif; --body: 'Barlow', system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #141008; --ink: #FFF3CF; --card: #1F1A0E; --gold: #FFC21A; --line: #3A3018; --muted: #BFAF80; --hero: #0B0904; --ok: #6FD08C; }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 17px; }
+    .wrap { max-width: 480px; margin: 0 auto; padding: 0 16px; }
+    header { background: var(--hero); color: var(--hero-ink); padding: 26px 0 22px; text-align: center; }
+    header h1 { font-family: var(--display); font-size: 36px; margin: 0; }
+    header p { margin: 4px 0 0; opacity: 0.85; }
+    .box { background: var(--card); border: 2px solid var(--ink); border-radius: 16px; padding: 18px; margin: 20px 0; }
+    label { display: block; font-weight: 700; margin-bottom: 6px; }
+    input { width: 100%; font: inherit; padding: 12px; border-radius: 10px; border: 2px solid var(--line); background: var(--bg); color: var(--ink); }
+    button { font: inherit; font-weight: 700; border: 2px solid var(--ink); background: var(--gold); color: var(--on-gold); border-radius: 12px; padding: 12px; cursor: pointer; width: 100%; margin-top: 10px; }
+    .dots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 16px 0; }
+    .dot { aspect-ratio: 1; border-radius: 50%; border: 2px dashed var(--muted); display: grid; place-items: center; font-size: 22px; }
+    .dot.on { background: var(--gold); border: 2px solid var(--ink); }
+    .dot.r { border-style: solid; border-color: var(--ink); }
+    .status-msg { text-align: center; font-weight: 700; font-size: 17px; margin-top: 14px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>👑 The Chosen One</h1>
+      <p>Tarjeta Virtual de Fidelidad</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="searchBox" class="box">
+      <h2>Consulta tus Sellos</h2>
+      <label for="cPhone">Ingresa tu número de celular</label>
+      <input id="cPhone" type="tel" placeholder="Ej: 987654321" autocomplete="off">
+      <button id="btnConsult" type="button">Ver mi tarjeta</button>
+      <p id="msg" style="color:var(--muted); margin-top:10px; text-align:center;"></p>
+    </div>
+
+    <div id="cardBox" class="box hidden">
+      <h2 id="cName" style="margin:0;">-</h2>
+      <p style="color:var(--muted); margin: 2px 0 14px;" id="cSub">-</p>
+
+      <div class="dots" id="dotsContainer"></div>
+
+      <div id="prizeMsg" class="status-msg"></div>
+
+      <button id="btnBack" type="button" style="background:var(--card); color:var(--ink); margin-top:20px;">Buscar otro número</button>
+    </div>
+  </main>
+
+  <!-- SDK Firebase CDN (Compatible) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

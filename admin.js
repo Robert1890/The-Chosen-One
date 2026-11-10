@@ -1,0 +1,131 @@
+// Configuración de Firebase con tus credenciales
+const firebaseConfig = {
+  apiKey: "AIzaSyBIkhbhHqMA_eZCw4G0fKJ5WFq8SZ_cB5k",
+  authDomain: "the-chosen-one-2026.firebaseapp.com",
+  projectId: "the-chosen-one-2026",
+  storageBucket: "the-chosen-one-2026.firebasestorage.app",
+  messagingSenderId: "747006173267",
+  appId: "1:747006173267:web:a49b70ce348ab64f1166a6",
+  measurementId: "G-J55HDBWX5P"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+(function() {
+  var $ = function(id) { return document.getElementById(id); };
+  var docs = [], confirming = {};
+
+  function today() { return new Date().toLocaleDateString('en-CA'); }
+  function say(t, bad) { 
+    var m = $('msg'); m.textContent = t; m.style.color = bad ? 'var(--bad)' : 'var(--ink)'; 
+  }
+  function el(tag, cls, text) { 
+    var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; 
+  }
+  function digits(s) { return String(s || '').replace(/\D/g, ''); }
+
+  function waLink(c) {
+    var p = digits(c.phone); if (!p) return null;
+    if (p.length === 9) p = '51' + p; // Prefijo para Perú
+    var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club 👑. ¡Te esperamos!';
+    if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! 👑 Tu hamburguesa o salchipapa gratis te espera.';
+    else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! 🥤 Pídela en tu próxima visita.';
+    return 'https://wa.me/' + p + '?text=' + encodeURIComponent(t);
+  }
+
+  function patch(id, data, okMsg) {
+    db.collection('customers').doc(id).update(data)
+      .then(function() { say(okMsg); })
+      .catch(function() { say('Error al actualizar la base de datos.', true); });
+  }
+
+  function card(d) {
+    var c = d.data(); var id = d.id; var n = c.n || 0; var doneToday = (c.last === today());
+    var box = el('div', 'cust');
+    var top = el('div', 'top'); top.appendChild(el('b', null, c.name)); top.appendChild(el('span', null, (c.phone || 'Sin celular') + ' · ' + n + '/10'));
+    box.appendChild(top);
+
+    var dots = el('div', 'dots');
+    for (var i = 1; i <= 10; i++) {
+      var dt = el('div', 'dot' + (i <= n ? ' on' : '') + ((i === 5 || i === 10) ? ' r' : ''), i <= n ? '👑' : (i === 5 ? '🥤' : i === 10 ? '🍔' : ''));
+      dots.appendChild(dt);
+    }
+    box.appendChild(dots);
+
+    var st = '', ready = false;
+    if (n >= 10 && !c.r10) { st = 'Premio listo: hamburguesa o salchipapa gratis'; ready = true; }
+    else if (n >= 5 && !c.r5) { st = 'Premio listo: limonada gratis'; ready = true; }
+    else if (n < 5) { st = 'Faltan ' + (5 - n) + ' sellos para la limonada'; }
+    else { st = 'Faltan ' + (10 - n) + ' sellos para la hamburguesa o salchipapa'; }
+    if (doneToday) st += ' · Ya tiene sello de hoy';
+    box.appendChild(el('p', 'state' + (ready ? ' ready' : ''), st));
+
+    var acts = el('div', 'acts');
+    var b1 = el('button', null, 'Sumar sello'); b1.type = 'button'; b1.disabled = (n >= 10 || doneToday);
+    b1.onclick = function() { patch(id, { n: n + 1, last: today() }, 'Sello sumado a ' + c.name + '.'); };
+    acts.appendChild(b1);
+
+    if (n >= 5 && !c.r5) {
+      var b2 = el('button', 'alt', 'Canjear limonada'); b2.type = 'button';
+      b2.onclick = function() { patch(id, { r5: true }, 'Limonada canjeada.'); };
+      acts.appendChild(b2);
+    }
+    if (n >= 10 && !c.r10) {
+      var b3 = el('button', 'alt', 'Canjear hamburguesa/salchipapa'); b3.type = 'button';
+      b3.onclick = function() { patch(id, { n: 0, r5: false, r10: false, done: (c.done || 0) + 1 }, 'Premio canjeado. Tarjeta reiniciada.'); };
+      acts.appendChild(b3);
+    }
+    box.appendChild(acts);
+
+    var more = el('div', 'acts'); more.style.marginTop = '8px';
+    var w = waLink(c);
+    if (w) { var a = el('a', 'btn alt small', 'Avisar por WhatsApp'); a.href = w; a.target = '_blank'; more.appendChild(a); }
+    
+    var del = el('button', 'alt small', confirming[id] ? 'Confirmar eliminar' : 'Eliminar'); del.type = 'button';
+    del.onclick = function() {
+      if (!confirming[id]) { confirming[id] = true; render(); return; }
+      db.collection('customers').doc(id).delete();
+    };
+    more.appendChild(del);
+    box.appendChild(more);
+    return box;
+  }
+
+  function render() {
+    var q = $('q').value.trim().toLowerCase();
+    var list = $('list'); list.textContent = '';
+    var ready = 0;
+    docs.forEach(function(d) { var c = d.data(); var n = c.n || 0; if ((n >= 10 && !c.r10) || (n >= 5 && !c.r5)) ready++; });
+    $('sClients').textContent = docs.length; $('sReady').textContent = ready;
+
+    var shown = docs.filter(function(d) {
+      var c = d.data(); return !q || String(c.name).toLowerCase().indexOf(q) > -1 || digits(c.phone).indexOf(digits(q) || '§') > -1;
+    });
+
+    if (!shown.length) {
+      list.appendChild(el('div', 'empty', docs.length ? 'Sin resultados.' : 'Aún no hay clientes.'));
+      return;
+    }
+    shown.forEach(function(d) { list.appendChild(card(d)); });
+  }
+
+  $('q').addEventListener('input', render);
+
+  $('add').addEventListener('click', function() {
+    var name = $('fn').value.trim();
+    var phone = digits($('fp').value);
+    if (!name) { say('Escribe el nombre.', true); return; }
+    
+    db.collection('customers').add({
+      name: name, phone: phone, n: 0, r5: false, r10: false, last: '', done: 0, created: today()
+    }).then(function() {
+      $('fn').value = ''; $('fp').value = ''; say(name + ' fue agregado.');
+    });
+  });
+
+  db.collection('customers').onSnapshot(function(snap) {
+    docs = snap.docs;
+    render();
+  });
+})();
