@@ -28,9 +28,9 @@ const db = firebase.firestore();
   function waLink(c) {
     var p = digits(c.phone); if (!p) return null;
     if (p.length === 9) p = '51' + p; // Prefijo Perú
-    var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club 👑. ¡Te esperamos!';
-    if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! 👑 Tu hamburguesa o salchipapa gratis te espera.';
-    else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! 🥤 Pídela en tu próxima visita.';
+    var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One. ¡Te esperamos!';
+    if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! Tu hamburguesa o salchipapa gratis te espera.';
+    else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! Pídela en tu próxima visita.';
     return 'https://wa.me/' + p + '?text=' + encodeURIComponent(t);
   }
 
