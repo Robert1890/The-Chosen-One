@@ -14,7 +14,7 @@ const db = firebase.firestore();
 
 (function() {
   var $ = function(id) { return document.getElementById(id); };
-  var docs = [], confirming = {};
+  var docs = [], confirming = {}, editingPhone = {};
 
   function today() { return new Date().toLocaleDateString('en-CA'); }
   function say(t, bad) { 
@@ -27,7 +27,7 @@ const db = firebase.firestore();
 
   function waLink(c) {
     var p = digits(c.phone); if (!p) return null;
-    if (p.length === 9) p = '51' + p; // Prefijo para Perú
+    if (p.length === 9) p = '51' + p; // Prefijo Perú
     var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club 👑. ¡Te esperamos!';
     if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! 👑 Tu hamburguesa o salchipapa gratis te espera.';
     else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! 🥤 Pídela en tu próxima visita.';
@@ -63,12 +63,12 @@ const db = firebase.firestore();
 
     var acts = el('div', 'acts');
     
-    // Botón Sumar sello
+    // Sumar sello
     var b1 = el('button', null, 'Sumar sello'); b1.type = 'button'; b1.disabled = (n >= 10 || doneToday);
     b1.onclick = function() { patch(id, { n: n + 1, last: today() }, 'Sello sumado a ' + c.name + '.'); };
     acts.appendChild(b1);
 
-    // Botón Restar / Borrar sello
+    // Restar sello
     var bSub = el('button', 'alt', 'Restar sello'); bSub.type = 'button'; bSub.disabled = (n <= 0);
     bSub.onclick = function() { 
       var newCount = Math.max(0, n - 1);
@@ -89,9 +89,18 @@ const db = firebase.firestore();
     box.appendChild(acts);
 
     var more = el('div', 'acts'); more.style.marginTop = '8px';
+    
     var w = waLink(c);
     if (w) { var a = el('a', 'btn alt small', 'Avisar por WhatsApp'); a.href = w; a.target = '_blank'; more.appendChild(a); }
     
+    // Botón para editar / agregar celular
+    var btnEditPhone = el('button', 'alt small', c.phone ? '✏️ Celular' : '📱 Agregar celular'); btnEditPhone.type = 'button';
+    btnEditPhone.onclick = function() {
+      editingPhone[id] = !editingPhone[id];
+      render();
+    };
+    more.appendChild(btnEditPhone);
+
     var del = el('button', 'alt small', confirming[id] ? 'Confirmar eliminar' : 'Eliminar cliente'); del.type = 'button';
     del.onclick = function() {
       if (!confirming[id]) { confirming[id] = true; render(); return; }
@@ -99,6 +108,22 @@ const db = firebase.firestore();
     };
     more.appendChild(del);
     box.appendChild(more);
+
+    // Campo de edición desplegable para el celular
+    if (editingPhone[id]) {
+      var editBox = el('div', 'edit-phone-box');
+      var inputPhone = el('input'); inputPhone.type = 'tel'; inputPhone.placeholder = 'Nuevo número'; inputPhone.value = c.phone || '';
+      var btnSavePhone = el('button', 'small', 'Guardar'); btnSavePhone.type = 'button';
+      btnSavePhone.onclick = function() {
+        var newP = digits(inputPhone.value);
+        patch(id, { phone: newP }, 'Celular de ' + c.name + ' actualizado.');
+        editingPhone[id] = false;
+      };
+      editBox.appendChild(inputPhone);
+      editBox.appendChild(btnSavePhone);
+      box.appendChild(editBox);
+    }
+
     return box;
   }
 
