@@ -25,12 +25,11 @@ const db = firebase.firestore();
   }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
 
-  // Inicializar selector de fecha con hoy
   $('repDate').value = today();
 
   function waLink(c) {
     var p = digits(c.phone); if (!p) return null;
-    if (p.length === 9) p = '51' + p; // Prefijo Perú
+    if (p.length === 9) p = '51' + p;
     var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club 👑. ¡Te esperamos!';
     if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! 👑 Tu premio sorpresa te espera.';
     else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes tu premio sorpresa intermedio disponible! 🎁 Pídelo en tu próxima visita.';
@@ -93,95 +92,85 @@ const db = firebase.firestore();
     });
   });
 
-  // GENERADOR DE EXCEL (CSV CON BOM UTF-8 Y SEPARADOR PUNTO Y COMA)
+  // GENERADOR DE ARCHIVO EXCEL REAL (.xlsx) CON 2 PESTAÑAS
   $('exportExcel').addEventListener('click', function() {
     if (!docs.length) {
-      say('No hay datos para exportar aún.', true);
+      say('No hay clientes registrados para exportar.', true);
       return;
     }
 
-    // 1. Agrupar todos los datos históricos por fecha (días anteriores + hoy)
-    var dailyMap = {};
-
-    function ensureDate(dt) {
-      if (!dt) return;
-      if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
+    if (typeof XLSX === 'undefined') {
+      say('Cargando librería de Excel, intenta en 3 segundos...', true);
+      return;
     }
 
-    docs.forEach(function(d) {
-      var c = d.data();
-      if (c.created) {
-        ensureDate(c.created);
-        dailyMap[c.created].newCusts.push(c.name);
+    try {
+      var dailyMap = {};
+      function ensureDate(dt) {
+        if (!dt) return;
+        if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
       }
-      var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
-      hist.forEach(function(dt) {
-        ensureDate(dt);
-        if (dailyMap[dt].stamps.indexOf(c.name) === -1) {
-          dailyMap[dt].stamps.push(c.name);
+
+      docs.forEach(function(d) {
+        var c = d.data();
+        if (c.created) {
+          ensureDate(c.created);
+          dailyMap[c.created].newCusts.push(c.name);
         }
+        var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
+        hist.forEach(function(dt) {
+          ensureDate(dt);
+          if (dailyMap[dt].stamps.indexOf(c.name) === -1) {
+            dailyMap[dt].stamps.push(c.name);
+          }
+        });
       });
-    });
 
-    // Ordenar fechas de más reciente a más antigua
-    var sortedDates = Object.keys(dailyMap).sort().reverse();
+      var sortedDates = Object.keys(dailyMap).sort().reverse();
 
-    function esc(val) {
-      var str = String(val == null ? '' : val).replace(/"/g, '""');
-      return '"' + str + '"';
+      // Pestaña 1: Historial Diario
+      var dailyData = sortedDates.map(function(dt) {
+        var info = dailyMap[dt];
+        return {
+          'Fecha': dt,
+          'Sellos Otorgados': info.stamps.length,
+          'Clientes con Sello': info.stamps.join(', ') || 'Ninguno',
+          'Clientes Nuevos': info.newCusts.length,
+          'Nombres Nuevos': info.newCusts.join(', ') || 'Ninguno'
+        };
+      });
+
+      if (!dailyData.length) {
+        dailyData.push({ 'Fecha': today(), 'Sellos Otorgados': 0, 'Clientes con Sello': 'Ninguno', 'Clientes Nuevos': 0, 'Nombres Nuevos': 'Ninguno' });
+      }
+
+      // Pestaña 2: Base de Clientes
+      var clientsData = docs.map(function(d) {
+        var c = d.data();
+        var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
+        return {
+          'Nombre': c.name || '',
+          'Celular': c.phone || 'Sin celular',
+          'Sellos Actuales': c.n || 0,
+          'Tarjetas Completadas': c.done || 0,
+          'Fecha Registro': c.created || '',
+          'Último Sello': c.last || '',
+          'Historial de Visitas': hist.join(', ')
+        };
+      });
+
+      var wb = XLSX.utils.book_new();
+      var ws1 = XLSX.utils.json_to_sheet(dailyData);
+      var ws2 = XLSX.utils.json_to_sheet(clientsData);
+
+      XLSX.utils.book_append_sheet(wb, ws1, 'Historial Diario');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Clientes');
+
+      XLSX.writeFile(wb, 'Reporte_The_Chosen_One_' + today() + '.xlsx');
+      say('✅ Excel descargado correctamente.');
+    } catch (err) {
+      say('Error al generar Excel: ' + err.message, true);
     }
-
-    var rows = [];
-    // Bloque 1: Resumen Histórico Diario
-    rows.push(['REPORTE HISTÓRICO DIARIO - THE CHOSEN ONE'].map(esc).join(';'));
-    rows.push(['Fecha', 'Cant. Sellos Otorgados', 'Clientes con Sello', 'Cant. Clientes Nuevos', 'Nombres Clientes Nuevos'].map(esc).join(';'));
-
-    sortedDates.forEach(function(dt) {
-      var info = dailyMap[dt];
-      rows.push([
-        dt,
-        info.stamps.length,
-        info.stamps.join(', ') || 'Ninguno',
-        info.newCusts.length,
-        info.newCusts.join(', ') || 'Ninguno'
-      ].map(esc).join(';'));
-    });
-
-    rows.push(''); // Fila en blanco separadora
-    rows.push('');
-
-    // Bloque 2: Detalle Completo de Clientes
-    rows.push(['BASE DE DATOS GENERAL DE CLIENTES'].map(esc).join(';'));
-    rows.push(['Nombre', 'Celular', 'Sellos Actuales', 'Tarjetas Completadas', 'Fecha de Registro', 'Último Sello', 'Historial de Fechas de Visita'].map(esc).join(';'));
-
-    docs.forEach(function(d) {
-      var c = d.data();
-      var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
-      rows.push([
-        c.name || '',
-        c.phone || 'Sin celular',
-        c.n || 0,
-        c.done || 0,
-        c.created || '',
-        c.last || '',
-        hist.join(', ')
-      ].map(esc).join(';'));
-    });
-
-    // BOM \uFEFF asegura que Excel abra tildes, eñes y emojis correctamente
-    var csvContent = '\uFEFF' + rows.join('\n');
-    var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    var url = URL.createObjectURL(blob);
-    
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'Reporte_The_Chosen_One_' + today() + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    say('Archivo Excel descargado correctamente.');
   });
 
   function card(d) {
@@ -207,7 +196,6 @@ const db = firebase.firestore();
 
     var acts = el('div', 'acts');
     
-    // Sumar sello y guardar fecha en historial
     var b1 = el('button', null, 'Sumar sello'); b1.type = 'button'; b1.disabled = (n >= 10 || doneToday);
     b1.onclick = function() { 
       var t = today();
@@ -217,7 +205,6 @@ const db = firebase.firestore();
     };
     acts.appendChild(b1);
 
-    // Restar sello y quitar fecha de hoy del historial
     var bSub = el('button', 'alt', 'Restar sello'); bSub.type = 'button'; bSub.disabled = (n <= 0);
     bSub.onclick = function() { 
       var newCount = Math.max(0, n - 1);
