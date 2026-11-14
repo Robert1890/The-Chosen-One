@@ -28,7 +28,6 @@ const db = firebase.firestore();
   }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
 
-  // Normaliza el historial (soporta fechas antiguas 'YYYY-MM-DD' y nuevas 'YYYY-MM-DD HH:mm')
   function parseHistory(c) {
     var raw = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
     return raw.map(function(entry) {
@@ -62,13 +61,11 @@ const db = firebase.firestore();
     docs.forEach(function(d) {
       var c = d.data();
       var hist = parseHistory(c);
-      
       hist.forEach(function(h) {
         if (h.date === targetDate) {
           stampedList.push(h.time !== '--:--' ? (c.name + ' (' + h.time + ')') : c.name);
         }
       });
-
       if (c.created === targetDate) {
         newList.push(c.createdTime ? (c.name + ' (' + c.createdTime + ')') : c.name);
       }
@@ -79,13 +76,10 @@ const db = firebase.firestore();
 
     var det = $('repDetails');
     det.innerHTML = '';
-    
     var p1 = el('p');
     p1.innerHTML = '<b>👑 Sellos dados (' + stampedList.length + '):</b> ' + (stampedList.length ? stampedList.join(', ') : 'Ninguno');
-    
     var p2 = el('p');
     p2.innerHTML = '<b>✨ Nuevos registrados (' + newList.length + '):</b> ' + (newList.length ? newList.join(', ') : 'Ninguno');
-
     det.appendChild(p1);
     det.appendChild(p2);
   }
@@ -100,7 +94,6 @@ const db = firebase.firestore();
     var text = '📊 *REPORTE THE CHOSEN ONE (' + d + ')*\n' +
                '• Sellos otorgados: ' + sCount + '\n' +
                '• Clientes nuevos: ' + nCount + '\n\n' + lines;
-    
     navigator.clipboard.writeText(text).then(function() {
       say('Reporte copiado al portapapeles.');
     }).catch(function() {
@@ -108,121 +101,151 @@ const db = firebase.firestore();
     });
   });
 
-  // GENERADOR DE EXCEL PROFESIONAL (.xlsx) CON 3 PESTAÑAS Y COLUMNAS AUTOAJUSTADAS
+  // GENERADOR DE REPORTE EXCEL PROFESIONAL CON DISEÑO DE TABLA, BORDES Y COLORES
   $('exportExcel').addEventListener('click', function() {
     if (!docs.length) {
       say('No hay clientes registrados para exportar.', true);
       return;
     }
 
-    if (typeof XLSX === 'undefined') {
-      say('Cargando librería de Excel, intenta en 3 segundos...', true);
-      return;
+    var dailyMap = {};
+    var movementsList = [];
+
+    function ensureDate(dt) {
+      if (!dt) return;
+      if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
     }
 
-    try {
-      var dailyMap = {};
-      var movementsList = [];
-
-      function ensureDate(dt) {
-        if (!dt) return;
-        if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
+    docs.forEach(function(d) {
+      var c = d.data();
+      if (c.created) {
+        ensureDate(c.created);
+        var regLabel = c.createdTime ? (c.name + ' (' + c.createdTime + ')') : c.name;
+        dailyMap[c.created].newCusts.push(regLabel);
       }
-
-      docs.forEach(function(d) {
-        var c = d.data();
-        if (c.created) {
-          ensureDate(c.created);
-          var regLabel = c.createdTime ? (c.name + ' (' + c.createdTime + ')') : c.name;
-          dailyMap[c.created].newCusts.push(regLabel);
-        }
-
-        var hist = parseHistory(c);
-        hist.forEach(function(h) {
-          ensureDate(h.date);
-          var stampLabel = h.time !== '--:--' ? (c.name + ' (' + h.time + ')') : c.name;
-          dailyMap[h.date].stamps.push(stampLabel);
-
-          movementsList.push({
-            'Fecha': h.date,
-            'Hora': h.time,
-            'Cliente': c.name || '',
-            'Celular': c.phone || 'Sin celular',
-            'Sellos Totales Actuales': c.n || 0
-          });
+      var hist = parseHistory(c);
+      hist.forEach(function(h) {
+        ensureDate(h.date);
+        var stampLabel = h.time !== '--:--' ? (c.name + ' (' + h.time + ')') : c.name;
+        dailyMap[h.date].stamps.push(stampLabel);
+        movementsList.push({
+          date: h.date,
+          time: h.time,
+          name: c.name || '',
+          phone: c.phone || 'Sin celular',
+          n: c.n || 0
         });
       });
+    });
 
-      // Ordenar fechas del resumen (más reciente primero)
-      var sortedDates = Object.keys(dailyMap).sort().reverse();
+    var sortedDates = Object.keys(dailyMap).sort().reverse();
+    movementsList.sort(function(a, b) {
+      return (b.date + ' ' + b.time).localeCompare(a.date + ' ' + a.time);
+    });
 
-      // PESTAÑA 1: RESUMEN DIARIO CONSOLIDADO
-      var dailyData = sortedDates.map(function(dt) {
-        var info = dailyMap[dt];
-        return {
-          'Fecha': dt,
-          'Total Sellos': info.stamps.length,
-          'Detalle Sellos (Cliente y Hora)': info.stamps.join(' | ') || 'Sin sellos',
-          'Total Nuevos': info.newCusts.length,
-          'Detalle Nuevos (Cliente y Hora)': info.newCusts.join(' | ') || 'Sin registros'
-        };
-      });
-
-      if (!dailyData.length) {
-        dailyData.push({ 'Fecha': today(), 'Total Sellos': 0, 'Detalle Sellos (Cliente y Hora)': 'Sin sellos', 'Total Nuevos': 0, 'Detalle Nuevos (Cliente y Hora)': 'Sin registros' });
-      }
-
-      // PESTAÑA 2: DETALLE CRONOLÓGICO DE MOVIMIENTOS (1 FILA POR SELLO)
-      movementsList.sort(function(a, b) {
-        var keyA = a['Fecha'] + ' ' + a['Hora'];
-        var keyB = b['Fecha'] + ' ' + b['Hora'];
-        return keyB.localeCompare(keyA);
-      });
-
-      if (!movementsList.length) {
-        movementsList.push({ 'Fecha': today(), 'Hora': '--:--', 'Cliente': 'Sin movimientos aún', 'Celular': '', 'Sellos Totales Actuales': 0 });
-      }
-
-      // PESTAÑA 3: BASE GENERAL DE CLIENTES
-      var clientsData = docs.map(function(d) {
-        var c = d.data();
-        var hist = parseHistory(c).map(function(h) {
-          return h.time !== '--:--' ? (h.date + ' ' + h.time) : h.date;
-        });
-        return {
-          'Nombre del Cliente': c.name || '',
-          'Celular': c.phone || 'Sin celular',
-          'Sellos Actuales': c.n || 0,
-          'Tarjetas Completadas': c.done || 0,
-          'Fecha Registro': c.created || '',
-          'Hora Registro': c.createdTime || '--:--',
-          'Última Visita': c.last || 'Ninguna',
-          'Historial Completo (Fecha y Hora)': hist.join(' | ') || 'Sin visitas'
-        };
-      });
-
-      // Crear libro y hojas con ancho de columna automático profesional
-      var wb = XLSX.utils.book_new();
-
-      function createStyledSheet(data, colWidths) {
-        var ws = XLSX.utils.json_to_sheet(data);
-        ws['!cols'] = colWidths.map(function(w) { return { wch: w }; });
-        return ws;
-      }
-
-      var ws1 = createStyledSheet(dailyData, [14, 14, 52, 14, 48]);
-      var ws2 = createStyledSheet(movementsList, [14, 10, 28, 16, 22]);
-      var ws3 = createStyledSheet(clientsData, [28, 16, 16, 20, 16, 14, 16, 55]);
-
-      XLSX.utils.book_append_sheet(wb, ws1, 'Resumen Diario');
-      XLSX.utils.book_append_sheet(wb, ws2, 'Detalle por Hora');
-      XLSX.utils.book_append_sheet(wb, ws3, 'Base de Clientes');
-
-      XLSX.writeFile(wb, 'Reporte_The_Chosen_One_' + today() + '.xlsx');
-      say('✅ Excel ordenado descargado correctamente.');
-    } catch (err) {
-      say('Error al generar Excel: ' + err.message, true);
+    function escHtml(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
+
+    var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">' +
+      '<head><meta charset="utf-8"><style>' +
+      'table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; margin-bottom: 25px; }' +
+      'th { background-color: #141008; color: #FFC21A; font-weight: bold; border: 1px solid #000000; padding: 10px 14px; text-align: center; }' +
+      'td { border: 1px solid #888888; padding: 8px 12px; vertical-align: middle; }' +
+      '.title { background-color: #F5B700; color: #141008; font-size: 14pt; font-weight: bold; text-align: left; padding: 12px; border: 1px solid #000000; }' +
+      '.center { text-align: center; }' +
+      '.even { background-color: #FFFDF7; }' +
+      '</style></head><body>';
+
+    // TABLA 1: RESUMEN HISTÓRICO DIARIO
+    html += '<table>' +
+      '<tr><td colspan="5" class="title">👑 THE CHOSEN ONE — REPORTE HISTÓRICO DIARIO</td></tr>' +
+      '<tr>' +
+        '<th style="width:120px;">Fecha</th>' +
+        '<th style="width:130px;">Total Sellos</th>' +
+        '<th style="width:360px;">Clientes con Sello (y Hora)</th>' +
+        '<th style="width:140px;">Clientes Nuevos</th>' +
+        '<th style="width:340px;">Nombres Nuevos (y Hora)</th>' +
+      '</tr>';
+
+    sortedDates.forEach(function(dt, idx) {
+      var info = dailyMap[dt];
+      var cls = idx % 2 === 1 ? ' class="even"' : '';
+      html += '<tr' + cls + '>' +
+        '<td class="center"><b>' + escHtml(dt) + '</b></td>' +
+        '<td class="center"><b>' + info.stamps.length + '</b></td>' +
+        '<td>' + escHtml(info.stamps.join(', ') || 'Ninguno') + '</td>' +
+        '<td class="center"><b>' + info.newCusts.length + '</b></td>' +
+        '<td>' + escHtml(info.newCusts.join(', ') || 'Ninguno') + '</td>' +
+      '</tr>';
+    });
+    html += '</table>';
+
+    // TABLA 2: DETALLE CRONOLÓGICO POR HORA
+    html += '<table>' +
+      '<tr><td colspan="5" class="title">🕒 DETALLE DE SELLOS POR FECHA Y HORA</td></tr>' +
+      '<tr>' +
+        '<th style="width:120px;">Fecha</th>' +
+        '<th style="width:100px;">Hora</th>' +
+        '<th style="width:260px;">Cliente</th>' +
+        '<th style="width:140px;">Celular</th>' +
+        '<th style="width:150px;">Sellos Actuales</th>' +
+      '</tr>';
+
+    movementsList.forEach(function(m, idx) {
+      var cls = idx % 2 === 1 ? ' class="even"' : '';
+      html += '<tr' + cls + '>' +
+        '<td class="center">' + escHtml(m.date) + '</td>' +
+        '<td class="center"><b>' + escHtml(m.time) + '</b></td>' +
+        '<td>' + escHtml(m.name) + '</td>' +
+        '<td class="center">' + escHtml(m.phone) + '</td>' +
+        '<td class="center">' + m.n + ' / 10</td>' +
+      '</tr>';
+    });
+    html += '</table>';
+
+    // TABLA 3: BASE GENERAL DE CLIENTES
+    html += '<table>' +
+      '<tr><td colspan="7" class="title">📋 BASE DE DATOS GENERAL DE CLIENTES</td></tr>' +
+      '<tr>' +
+        '<th style="width:250px;">Nombre del Cliente</th>' +
+        '<th style="width:140px;">Celular</th>' +
+        '<th style="width:130px;">Sellos Actuales</th>' +
+        '<th style="width:160px;">Tarjetas Completadas</th>' +
+        '<th style="width:150px;">Fecha Registro</th>' +
+        '<th style="width:110px;">Hora Registro</th>' +
+        '<th style="width:380px;">Historial Completo de Visitas</th>' +
+      '</tr>';
+
+    docs.forEach(function(d, idx) {
+      var c = d.data();
+      var cls = idx % 2 === 1 ? ' class="even"' : '';
+      var hist = parseHistory(c).map(function(h) {
+        return h.time !== '--:--' ? (h.date + ' (' + h.time + ')') : h.date;
+      });
+      html += '<tr' + cls + '>' +
+        '<td><b>' + escHtml(c.name || '') + '</b></td>' +
+        '<td class="center">' + escHtml(c.phone || 'Sin celular') + '</td>' +
+        '<td class="center">' + (c.n || 0) + ' / 10</td>' +
+        '<td class="center">' + (c.done || 0) + '</td>' +
+        '<td class="center">' + escHtml(c.created || '') + '</td>' +
+        '<td class="center">' + escHtml(c.createdTime || '--:--') + '</td>' +
+        '<td>' + escHtml(hist.join(', ') || 'Sin visitas') + '</td>' +
+      '</tr>';
+    });
+    html += '</table></body></html>';
+
+    var blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'Reporte_The_Chosen_One_' + today() + '.xls';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    say('✅ Excel profesional descargado.');
   });
 
   function card(d) {
@@ -248,7 +271,6 @@ const db = firebase.firestore();
 
     var acts = el('div', 'acts');
     
-    // Sumar sello guardando Fecha + Hora exacta
     var b1 = el('button', null, 'Sumar sello'); b1.type = 'button'; b1.disabled = (n >= 10 || doneToday);
     b1.onclick = function() { 
       var t = today();
@@ -260,7 +282,6 @@ const db = firebase.firestore();
     };
     acts.appendChild(b1);
 
-    // Restar sello y quitar registro de hoy del historial
     var bSub = el('button', 'alt', 'Restar sello'); bSub.type = 'button'; bSub.disabled = (n <= 0);
     bSub.onclick = function() { 
       var newCount = Math.max(0, n - 1);
