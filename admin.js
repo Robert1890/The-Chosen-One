@@ -32,7 +32,7 @@ const db = firebase.firestore();
     var raw = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
     return raw.map(function(entry) {
       var parts = String(entry).trim().split(' ');
-      return { date: parts[0] || '', time: parts[1] || '--:--', full: entry };
+      return { date: parts[0] || '', time: parts[1] || '', full: entry };
     }).filter(function(item) { return item.date !== ''; });
   }
 
@@ -63,7 +63,7 @@ const db = firebase.firestore();
       var hist = parseHistory(c);
       hist.forEach(function(h) {
         if (h.date === targetDate) {
-          stampedList.push(h.time !== '--:--' ? (c.name + ' (' + h.time + ')') : c.name);
+          stampedList.push(h.time ? (c.name + ' (' + h.time + ')') : c.name);
         }
       });
       if (c.created === targetDate) {
@@ -101,7 +101,7 @@ const db = firebase.firestore();
     });
   });
 
-  // GENERADOR DE REPORTE EXCEL PROFESIONAL CON DISEÑO DE TABLA, BORDES Y COLORES
+  // GENERADOR DE EXCEL ORDENADO, LIMPIO Y SIN ABREVIATURAS CONFUSAS
   $('exportExcel').addEventListener('click', function() {
     if (!docs.length) {
       say('No hay clientes registrados para exportar.', true);
@@ -116,21 +116,28 @@ const db = firebase.firestore();
       if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
     }
 
-    docs.forEach(function(d) {
+    // Ordenar clientes alfabéticamente (A - Z)
+    var sortedDocs = docs.slice().sort(function(a, b) {
+      var nameA = String(a.data().name || '').toLowerCase();
+      var nameB = String(b.data().name || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    sortedDocs.forEach(function(d) {
       var c = d.data();
       if (c.created) {
         ensureDate(c.created);
-        var regLabel = c.createdTime ? (c.name + ' (' + c.createdTime + ')') : c.name;
+        var regLabel = c.createdTime ? ('• ' + c.name + ' (' + c.createdTime + ' hrs)') : ('• ' + c.name);
         dailyMap[c.created].newCusts.push(regLabel);
       }
       var hist = parseHistory(c);
       hist.forEach(function(h) {
         ensureDate(h.date);
-        var stampLabel = h.time !== '--:--' ? (c.name + ' (' + h.time + ')') : c.name;
+        var stampLabel = h.time ? ('• ' + c.name + ' (' + h.time + ' hrs)') : ('• ' + c.name);
         dailyMap[h.date].stamps.push(stampLabel);
         movementsList.push({
           date: h.date,
-          time: h.time,
+          time: h.time || 'Sin hora registrada',
           name: c.name || '',
           phone: c.phone || 'Sin celular',
           n: c.n || 0
@@ -147,25 +154,33 @@ const db = firebase.firestore();
       return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    // Convierte listas en líneas separadas dentro de la misma celda para lectura clara
+    function listToLines(arr, emptyText) {
+      if (!arr || !arr.length) return escHtml(emptyText);
+      return arr.map(escHtml).join('<br style="mso-data-placement:same-cell;">');
+    }
+
     var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta charset="utf-8"><style>' +
-      'table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; margin-bottom: 25px; }' +
+      'table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }' +
       'th { background-color: #141008; color: #FFC21A; font-weight: bold; border: 1px solid #000000; padding: 10px 14px; text-align: center; }' +
       'td { border: 1px solid #888888; padding: 8px 12px; vertical-align: middle; }' +
-      '.title { background-color: #F5B700; color: #141008; font-size: 14pt; font-weight: bold; text-align: left; padding: 12px; border: 1px solid #000000; }' +
+      '.title { background-color: #F5B700; color: #141008; font-size: 13pt; font-weight: bold; text-align: left; padding: 11px 14px; border: 1px solid #000000; }' +
       '.center { text-align: center; }' +
-      '.even { background-color: #FFFDF7; }' +
+      '.left { text-align: left; }' +
+      '.even { background-color: #FFFDF5; }' +
+      '.spacer { border: none; height: 22px; background: #FFFFFF; }' +
       '</style></head><body>';
 
     // TABLA 1: RESUMEN HISTÓRICO DIARIO
     html += '<table>' +
-      '<tr><td colspan="5" class="title">👑 THE CHOSEN ONE — REPORTE HISTÓRICO DIARIO</td></tr>' +
+      '<tr><td colspan="5" class="title">👑 THE CHOSEN ONE — RESUMEN HISTÓRICO POR DÍA</td></tr>' +
       '<tr>' +
-        '<th style="width:120px;">Fecha</th>' +
-        '<th style="width:130px;">Total Sellos</th>' +
-        '<th style="width:360px;">Clientes con Sello (y Hora)</th>' +
+        '<th style="width:130px;">Fecha</th>' +
+        '<th style="width:140px;">Sellos Dados</th>' +
+        '<th style="width:320px;">Lista de Clientes con Sello</th>' +
         '<th style="width:140px;">Clientes Nuevos</th>' +
-        '<th style="width:340px;">Nombres Nuevos (y Hora)</th>' +
+        '<th style="width:320px;">Lista de Clientes Nuevos</th>' +
       '</tr>';
 
     sortedDates.forEach(function(dt, idx) {
@@ -174,22 +189,22 @@ const db = firebase.firestore();
       html += '<tr' + cls + '>' +
         '<td class="center"><b>' + escHtml(dt) + '</b></td>' +
         '<td class="center"><b>' + info.stamps.length + '</b></td>' +
-        '<td>' + escHtml(info.stamps.join(', ') || 'Ninguno') + '</td>' +
+        '<td class="left">' + listToLines(info.stamps, 'Ninguno') + '</td>' +
         '<td class="center"><b>' + info.newCusts.length + '</b></td>' +
-        '<td>' + escHtml(info.newCusts.join(', ') || 'Ninguno') + '</td>' +
+        '<td class="left">' + listToLines(info.newCusts, 'Ninguno') + '</td>' +
       '</tr>';
     });
-    html += '</table>';
+    html += '<tr><td colspan="5" class="spacer"></td></tr></table>';
 
-    // TABLA 2: DETALLE CRONOLÓGICO POR HORA
+    // TABLA 2: DETALLE DE SELLOS POR FECHA Y HORA
     html += '<table>' +
-      '<tr><td colspan="5" class="title">🕒 DETALLE DE SELLOS POR FECHA Y HORA</td></tr>' +
+      '<tr><td colspan="5" class="title">🕒 DETALLE DE SELLOS OTORGADOS (ORDEN CRONOLÓGICO)</td></tr>' +
       '<tr>' +
-        '<th style="width:120px;">Fecha</th>' +
-        '<th style="width:100px;">Hora</th>' +
-        '<th style="width:260px;">Cliente</th>' +
-        '<th style="width:140px;">Celular</th>' +
-        '<th style="width:150px;">Sellos Actuales</th>' +
+        '<th style="width:130px;">Fecha</th>' +
+        '<th style="width:170px;">Hora</th>' +
+        '<th style="width:280px;">Nombre del Cliente</th>' +
+        '<th style="width:150px;">Celular</th>' +
+        '<th style="width:160px;">Progreso Actual</th>' +
       '</tr>';
 
     movementsList.forEach(function(m, idx) {
@@ -197,40 +212,40 @@ const db = firebase.firestore();
       html += '<tr' + cls + '>' +
         '<td class="center">' + escHtml(m.date) + '</td>' +
         '<td class="center"><b>' + escHtml(m.time) + '</b></td>' +
-        '<td>' + escHtml(m.name) + '</td>' +
+        '<td class="left">' + escHtml(m.name) + '</td>' +
         '<td class="center">' + escHtml(m.phone) + '</td>' +
-        '<td class="center">' + m.n + ' / 10</td>' +
+        '<td class="center">' + m.n + ' de 10 sellos</td>' +
       '</tr>';
     });
-    html += '</table>';
+    html += '<tr><td colspan="5" class="spacer"></td></tr></table>';
 
-    // TABLA 3: BASE GENERAL DE CLIENTES
+    // TABLA 3: BASE GENERAL DE CLIENTES (ORDEN ALFABÉTICO A - Z)
     html += '<table>' +
-      '<tr><td colspan="7" class="title">📋 BASE DE DATOS GENERAL DE CLIENTES</td></tr>' +
+      '<tr><td colspan="7" class="title">📋 PADRÓN GENERAL DE CLIENTES (ORDEN ALFABÉTICO)</td></tr>' +
       '<tr>' +
-        '<th style="width:250px;">Nombre del Cliente</th>' +
+        '<th style="width:270px;">Nombre del Cliente</th>' +
         '<th style="width:140px;">Celular</th>' +
-        '<th style="width:130px;">Sellos Actuales</th>' +
-        '<th style="width:160px;">Tarjetas Completadas</th>' +
-        '<th style="width:150px;">Fecha Registro</th>' +
-        '<th style="width:110px;">Hora Registro</th>' +
-        '<th style="width:380px;">Historial Completo de Visitas</th>' +
+        '<th style="width:150px;">Progreso Actual</th>' +
+        '<th style="width:170px;">Tarjetas Completadas</th>' +
+        '<th style="width:150px;">Fecha de Registro</th>' +
+        '<th style="width:170px;">Hora de Registro</th>' +
+        '<th style="width:320px;">Historial de Visitas</th>' +
       '</tr>';
 
-    docs.forEach(function(d, idx) {
+    sortedDocs.forEach(function(d, idx) {
       var c = d.data();
       var cls = idx % 2 === 1 ? ' class="even"' : '';
       var hist = parseHistory(c).map(function(h) {
-        return h.time !== '--:--' ? (h.date + ' (' + h.time + ')') : h.date;
+        return h.time ? ('• ' + h.date + ' (' + h.time + ' hrs)') : ('• ' + h.date);
       });
       html += '<tr' + cls + '>' +
-        '<td><b>' + escHtml(c.name || '') + '</b></td>' +
+        '<td class="left"><b>' + escHtml(c.name || '') + '</b></td>' +
         '<td class="center">' + escHtml(c.phone || 'Sin celular') + '</td>' +
-        '<td class="center">' + (c.n || 0) + ' / 10</td>' +
+        '<td class="center">' + (c.n || 0) + ' de 10 sellos</td>' +
         '<td class="center">' + (c.done || 0) + '</td>' +
         '<td class="center">' + escHtml(c.created || '') + '</td>' +
-        '<td class="center">' + escHtml(c.createdTime || '--:--') + '</td>' +
-        '<td>' + escHtml(hist.join(', ') || 'Sin visitas') + '</td>' +
+        '<td class="center">' + escHtml(c.createdTime || 'Sin hora registrada') + '</td>' +
+        '<td class="left">' + listToLines(hist, 'Sin visitas') + '</td>' +
       '</tr>';
     });
     html += '</table></body></html>';
@@ -245,13 +260,13 @@ const db = firebase.firestore();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    say('✅ Excel profesional descargado.');
+    say('✅ Excel ordenado descargado correctamente.');
   });
 
   function card(d) {
     var c = d.data(); var id = d.id; var n = c.n || 0; var doneToday = (c.last === today());
     var box = el('div', 'cust');
-    var top = el('div', 'top'); top.appendChild(el('b', null, c.name)); top.appendChild(el('span', null, (c.phone || 'Sin celular') + ' · ' + n + '/10'));
+    var top = el('div', 'top'); top.appendChild(el('b', null, c.name)); top.appendChild(el('span', null, (c.phone || 'Sin celular') + ' · ' + n + ' de 10'));
     box.appendChild(top);
 
     var dots = el('div', 'dots');
