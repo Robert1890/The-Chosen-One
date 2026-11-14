@@ -32,8 +32,8 @@ const db = firebase.firestore();
     var p = digits(c.phone); if (!p) return null;
     if (p.length === 9) p = '51' + p; // Prefijo Perú
     var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club 👑. ¡Te esperamos!';
-    if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! 👑 Tu hamburguesa o salchipapa gratis te espera.';
-    else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! 🥤 Pídela en tu próxima visita.';
+    if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! 👑 Tu premio sorpresa te espera.';
+    else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes tu premio sorpresa intermedio disponible! 🎁 Pídelo en tu próxima visita.';
     return 'https://wa.me/' + p + '?text=' + encodeURIComponent(t);
   }
 
@@ -50,7 +50,6 @@ const db = firebase.firestore();
 
     docs.forEach(function(d) {
       var c = d.data();
-      // Revisar historial de fechas o última fecha
       var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
       if (hist.indexOf(targetDate) > -1) {
         stampedNames.push(c.name);
@@ -94,6 +93,97 @@ const db = firebase.firestore();
     });
   });
 
+  // GENERADOR DE EXCEL (CSV CON BOM UTF-8 Y SEPARADOR PUNTO Y COMA)
+  $('exportExcel').addEventListener('click', function() {
+    if (!docs.length) {
+      say('No hay datos para exportar aún.', true);
+      return;
+    }
+
+    // 1. Agrupar todos los datos históricos por fecha (días anteriores + hoy)
+    var dailyMap = {};
+
+    function ensureDate(dt) {
+      if (!dt) return;
+      if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
+    }
+
+    docs.forEach(function(d) {
+      var c = d.data();
+      if (c.created) {
+        ensureDate(c.created);
+        dailyMap[c.created].newCusts.push(c.name);
+      }
+      var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
+      hist.forEach(function(dt) {
+        ensureDate(dt);
+        if (dailyMap[dt].stamps.indexOf(c.name) === -1) {
+          dailyMap[dt].stamps.push(c.name);
+        }
+      });
+    });
+
+    // Ordenar fechas de más reciente a más antigua
+    var sortedDates = Object.keys(dailyMap).sort().reverse();
+
+    function esc(val) {
+      var str = String(val == null ? '' : val).replace(/"/g, '""');
+      return '"' + str + '"';
+    }
+
+    var rows = [];
+    // Bloque 1: Resumen Histórico Diario
+    rows.push(['REPORTE HISTÓRICO DIARIO - THE CHOSEN ONE'].map(esc).join(';'));
+    rows.push(['Fecha', 'Cant. Sellos Otorgados', 'Clientes con Sello', 'Cant. Clientes Nuevos', 'Nombres Clientes Nuevos'].map(esc).join(';'));
+
+    sortedDates.forEach(function(dt) {
+      var info = dailyMap[dt];
+      rows.push([
+        dt,
+        info.stamps.length,
+        info.stamps.join(', ') || 'Ninguno',
+        info.newCusts.length,
+        info.newCusts.join(', ') || 'Ninguno'
+      ].map(esc).join(';'));
+    });
+
+    rows.push(''); // Fila en blanco separadora
+    rows.push('');
+
+    // Bloque 2: Detalle Completo de Clientes
+    rows.push(['BASE DE DATOS GENERAL DE CLIENTES'].map(esc).join(';'));
+    rows.push(['Nombre', 'Celular', 'Sellos Actuales', 'Tarjetas Completadas', 'Fecha de Registro', 'Último Sello', 'Historial de Fechas de Visita'].map(esc).join(';'));
+
+    docs.forEach(function(d) {
+      var c = d.data();
+      var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
+      rows.push([
+        c.name || '',
+        c.phone || 'Sin celular',
+        c.n || 0,
+        c.done || 0,
+        c.created || '',
+        c.last || '',
+        hist.join(', ')
+      ].map(esc).join(';'));
+    });
+
+    // BOM \uFEFF asegura que Excel abra tildes, eñes y emojis correctamente
+    var csvContent = '\uFEFF' + rows.join('\n');
+    var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'Reporte_The_Chosen_One_' + today() + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    say('Archivo Excel descargado correctamente.');
+  });
+
   function card(d) {
     var c = d.data(); var id = d.id; var n = c.n || 0; var doneToday = (c.last === today());
     var box = el('div', 'cust');
@@ -102,16 +192,16 @@ const db = firebase.firestore();
 
     var dots = el('div', 'dots');
     for (var i = 1; i <= 10; i++) {
-      var dt = el('div', 'dot' + (i <= n ? ' on' : '') + ((i === 5 || i === 10) ? ' r' : ''), i <= n ? '👑' : (i === 5 ? '🥤' : i === 10 ? '🍔' : ''));
+      var dt = el('div', 'dot' + (i <= n ? ' on' : '') + ((i === 5 || i === 10) ? ' r' : ''), i <= n ? '👑' : (i === 5 ? '🎁' : i === 10 ? '🏆' : ''));
       dots.appendChild(dt);
     }
     box.appendChild(dots);
 
     var st = '', ready = false;
-    if (n >= 10 && !c.r10) { st = 'Premio listo: hamburguesa o salchipapa gratis'; ready = true; }
-    else if (n >= 5 && !c.r5) { st = 'Premio listo: limonada gratis'; ready = true; }
-    else if (n < 5) { st = 'Faltan ' + (5 - n) + ' sellos para la limonada'; }
-    else { st = 'Faltan ' + (10 - n) + ' sellos para la hamburguesa o salchipapa'; }
+    if (n >= 10 && !c.r10) { st = 'Premio listo: Premio Sorpresa Final'; ready = true; }
+    else if (n >= 5 && !c.r5) { st = 'Premio listo: Premio Sorpresa Intermedio'; ready = true; }
+    else if (n < 5) { st = 'Faltan ' + (5 - n) + ' sellos para el Premio Intermedio'; }
+    else { st = 'Faltan ' + (10 - n) + ' sellos para el Premio Final'; }
     if (doneToday) st += ' · Ya tiene sello de hoy';
     box.appendChild(el('p', 'state' + (ready ? ' ready' : ''), st));
 
@@ -138,13 +228,13 @@ const db = firebase.firestore();
     acts.appendChild(bSub);
 
     if (n >= 5 && !c.r5) {
-      var b2 = el('button', 'alt', 'Canjear limonada'); b2.type = 'button';
-      b2.onclick = function() { patch(id, { r5: true }, 'Limonada canjeada.'); };
+      var b2 = el('button', 'alt', 'Canjear Premio 5'); b2.type = 'button';
+      b2.onclick = function() { patch(id, { r5: true }, 'Premio intermedio canjeado.'); };
       acts.appendChild(b2);
     }
     if (n >= 10 && !c.r10) {
-      var b3 = el('button', 'alt', 'Canjear hamburguesa/salchipapa'); b3.type = 'button';
-      b3.onclick = function() { patch(id, { n: 0, r5: false, r10: false, done: (c.done || 0) + 1 }, 'Premio canjeado. Tarjeta reiniciada.'); };
+      var b3 = el('button', 'alt', 'Canjear Premio 10'); b3.type = 'button';
+      b3.onclick = function() { patch(id, { n: 0, r5: false, r10: false, done: (c.done || 0) + 1 }, 'Premio final canjeado. Tarjeta reiniciada.'); };
       acts.appendChild(b3);
     }
     box.appendChild(acts);
@@ -154,7 +244,6 @@ const db = firebase.firestore();
     var w = waLink(c);
     if (w) { var a = el('a', 'btn alt small', 'Avisar por WhatsApp'); a.href = w; a.target = '_blank'; more.appendChild(a); }
     
-    // Botón para editar Nombre y Celular
     var btnEdit = el('button', 'alt small', '✏️ Editar datos'); btnEdit.type = 'button';
     btnEdit.onclick = function() {
       editingCustomer[id] = !editingCustomer[id];
@@ -170,7 +259,6 @@ const db = firebase.firestore();
     more.appendChild(del);
     box.appendChild(more);
 
-    // Formulario desplegable para editar Nombre y Celular
     if (editingCustomer[id]) {
       var editBox = el('div', 'edit-phone-box');
       editBox.style.flexDirection = 'column';
