@@ -28,7 +28,6 @@ const db = firebase.firestore();
   }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
 
-  // Garantiza que la cantidad de movimientos coincida 100% con los sellos reales del cliente
   function parseHistory(c) {
     var raw = Array.isArray(c.history) ? c.history.slice() : [];
     var items = raw.map(function(entry) {
@@ -36,23 +35,18 @@ const db = firebase.firestore();
       return { date: parts[0] || '', time: parts[1] || '', inferred: false };
     }).filter(function(item) { return item.date !== ''; });
 
-    // Si tiene fecha de último sello ('last') y no está en el historial, agregarla
     if (c.last && !items.some(function(i) { return i.date === c.last; })) {
       items.push({ date: c.last, time: '', inferred: false });
     }
 
-    // Total real de sellos del cliente (actuales + tarjetas completadas)
     var totalRealStamps = (Number(c.n) || 0) + ((Number(c.done) || 0) * 10);
 
-    // Si el historial tiene más registros que los sellos reales (por algún sello restado), recortar
     if (items.length > totalRealStamps) {
       items = items.slice(items.length - totalRealStamps);
     }
 
-    // Si faltan registros en el historial para llegar al número real de sellos (ej. Lili tiene 2 y solo había 1),
-    // completar los faltantes asignándolos a su fecha conocida (last o created)
     while (items.length < totalRealStamps) {
-      var fallbackDate = c.last || c.created || today();
+      var fallbackDate = c.created || c.last || today();
       items.unshift({ date: fallbackDate, time: '', inferred: true });
     }
 
@@ -127,7 +121,6 @@ const db = firebase.firestore();
     });
   });
 
-  // GENERADOR DE EXCEL CON CONCILIACIÓN EXACTA DE TODOS LOS SELLOS
   $('exportExcel').addEventListener('click', function() {
     if (!docs.length) {
       say('No hay clientes registrados para exportar.', true);
@@ -205,7 +198,6 @@ const db = firebase.firestore();
       '.spacer { border: none; height: 22px; background: #FFFFFF; }' +
       '</style></head><body>';
 
-    // TABLA 1: RESUMEN HISTÓRICO POR DÍA
     html += '<table>' +
       '<tr><td colspan="5" class="title">👑 THE CHOSEN ONE — RESUMEN HISTÓRICO POR DÍA</td></tr>' +
       '<tr>' +
@@ -237,7 +229,6 @@ const db = firebase.firestore();
     '</tr>';
     html += '<tr><td colspan="5" class="spacer"></td></tr></table>';
 
-    // TABLA 2: DETALLE DE SELLOS POR FECHA Y HORA
     html += '<table>' +
       '<tr><td colspan="5" class="title">🕒 DETALLE DE SELLOS OTORGADOS (TOTAL: ' + grandTotalStamps + ' SELLOS)</td></tr>' +
       '<tr>' +
@@ -260,7 +251,6 @@ const db = firebase.firestore();
     });
     html += '<tr><td colspan="5" class="spacer"></td></tr></table>';
 
-    // TABLA 3: BASE GENERAL DE CLIENTES
     html += '<table>' +
       '<tr><td colspan="7" class="title">📋 PADRÓN GENERAL DE CLIENTES (ORDEN ALFABÉTICO)</td></tr>' +
       '<tr>' +
@@ -348,7 +338,9 @@ const db = firebase.firestore();
       var newCount = Math.max(0, n - 1);
       var t = today();
       var hist = Array.isArray(c.history) ? c.history.filter(function(x) { return String(x).indexOf(t) !== 0; }) : [];
-      patch(id, { n: newCount, last: '', history: hist }, 'Sello removido a ' + c.name + '.'); 
+      // Conserva la fecha anterior en 'last' si aún quedan registros en el historial
+      var prevLast = hist.length ? String(hist[hist.length - 1]).split(' ')[0] : '';
+      patch(id, { n: newCount, last: prevLast, history: hist }, 'Sello removido a ' + c.name + '.'); 
     };
     acts.appendChild(bSub);
 
@@ -384,6 +376,7 @@ const db = firebase.firestore();
     more.appendChild(del);
     box.appendChild(more);
 
+    // Formulario desplegable para editar Nombre, Celular y corregir Sellos manualmente
     if (editingCustomer[id]) {
       var editBox = el('div', 'edit-phone-box');
       editBox.style.flexDirection = 'column';
@@ -392,19 +385,25 @@ const db = firebase.firestore();
       inputName.style.marginBottom = '6px';
       
       var inputPhone = el('input'); inputPhone.type = 'tel'; inputPhone.placeholder = 'Número de celular'; inputPhone.value = c.phone || '';
+      inputPhone.style.marginBottom = '6px';
+
+      var inputStamps = el('input'); inputStamps.type = 'number'; inputStamps.min = '0'; inputStamps.max = '10';
+      inputStamps.placeholder = 'Cantidad de sellos (0 a 10)'; inputStamps.value = n;
       
       var btnSave = el('button', 'small', 'Guardar cambios'); btnSave.type = 'button'; btnSave.style.marginTop = '6px';
       btnSave.onclick = function() {
         var newName = inputName.value.trim();
         var newPhone = digits(inputPhone.value);
+        var newStamps = Math.max(0, Math.min(10, parseInt(inputStamps.value, 10) || 0));
         if (!newName) { say('El nombre no puede estar vacío.', true); return; }
         
-        patch(id, { name: newName, phone: newPhone }, 'Datos de ' + newName + ' actualizados.');
+        patch(id, { name: newName, phone: newPhone, n: newStamps }, 'Datos de ' + newName + ' actualizados (' + newStamps + ' sellos).');
         editingCustomer[id] = false;
       };
 
       editBox.appendChild(inputName);
       editBox.appendChild(inputPhone);
+      editBox.appendChild(inputStamps);
       editBox.appendChild(btnSave);
       box.appendChild(editBox);
     }
