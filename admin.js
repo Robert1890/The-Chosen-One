@@ -28,7 +28,7 @@ const db = firebase.firestore();
   }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
 
-  // Reconstruye el historial completo conciliando 'history', 'last', 'created' y el total real de sellos (n + done*10)
+  // Garantiza que la cantidad de movimientos coincida 100% con los sellos reales del cliente
   function parseHistory(c) {
     var raw = Array.isArray(c.history) ? c.history.slice() : [];
     var items = raw.map(function(entry) {
@@ -41,14 +41,19 @@ const db = firebase.firestore();
       items.push({ date: c.last, time: '', inferred: false });
     }
 
-    // Calcular cuántos sellos históricos reales tiene el cliente en total
+    // Total real de sellos del cliente (actuales + tarjetas completadas)
     var totalRealStamps = (Number(c.n) || 0) + ((Number(c.done) || 0) * 10);
 
-    // Si faltan sellos por registrar en fechas anteriores (anteriores a la creación del historial),
-    // se asignan a la fecha de registro del cliente (o fecha conocida) para que la suma cuadre al 100%
+    // Si el historial tiene más registros que los sellos reales (por algún sello restado), recortar
+    if (items.length > totalRealStamps) {
+      items = items.slice(items.length - totalRealStamps);
+    }
+
+    // Si faltan registros en el historial para llegar al número real de sellos (ej. Lili tiene 2 y solo había 1),
+    // completar los faltantes asignándolos a su fecha conocida (last o created)
     while (items.length < totalRealStamps) {
-      var fallbackDate = c.created || c.last || today();
-      items.push({ date: fallbackDate, time: '', inferred: true });
+      var fallbackDate = c.last || c.created || today();
+      items.unshift({ date: fallbackDate, time: '', inferred: true });
     }
 
     return items;
@@ -83,7 +88,7 @@ const db = firebase.firestore();
         if (h.date === targetDate) {
           var label = c.name;
           if (h.time) label += ' (' + h.time + ')';
-          else if (h.inferred) label += ' (sello inicial)';
+          else if (h.inferred) label += ' (sello anterior)';
           stampedList.push(label);
         }
       });
@@ -138,7 +143,6 @@ const db = firebase.firestore();
       if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
     }
 
-    // Ordenar clientes alfabéticamente (A - Z)
     var sortedDocs = docs.slice().sort(function(a, b) {
       var nameA = String(a.data().name || '').toLowerCase();
       var nameB = String(b.data().name || '').toLowerCase();
@@ -160,13 +164,13 @@ const db = firebase.firestore();
 
         var stampLabel = '• ' + c.name;
         if (h.time) stampLabel += ' (' + h.time + ' hrs)';
-        else if (h.inferred) stampLabel += ' (registro anterior)';
+        else if (h.inferred) stampLabel += ' (sello anterior)';
         
         dailyMap[h.date].stamps.push(stampLabel);
 
         movementsList.push({
           date: h.date,
-          time: h.time ? (h.time + ' hrs') : (h.inferred ? 'Registro anterior' : 'Sin hora registrada'),
+          time: h.time ? (h.time + ' hrs') : (h.inferred ? 'Sello anterior' : 'Sin hora registrada'),
           name: c.name || '',
           phone: c.phone || 'Sin celular',
           n: c.n || 0
@@ -201,7 +205,7 @@ const db = firebase.firestore();
       '.spacer { border: none; height: 22px; background: #FFFFFF; }' +
       '</style></head><body>';
 
-    // TABLA 1: RESUMEN HISTÓRICO POR DÍA (CON FILA DE TOTAL GENERAL)
+    // TABLA 1: RESUMEN HISTÓRICO POR DÍA
     html += '<table>' +
       '<tr><td colspan="5" class="title">👑 THE CHOSEN ONE — RESUMEN HISTÓRICO POR DÍA</td></tr>' +
       '<tr>' +
@@ -274,7 +278,7 @@ const db = firebase.firestore();
       var cls = idx % 2 === 1 ? ' class="even"' : '';
       var hist = parseHistory(c).map(function(h) {
         if (h.time) return '• ' + h.date + ' (' + h.time + ' hrs)';
-        if (h.inferred) return '• ' + h.date + ' (registro anterior)';
+        if (h.inferred) return '• ' + h.date + ' (sello anterior)';
         return '• ' + h.date;
       });
       html += '<tr' + cls + '>' +
