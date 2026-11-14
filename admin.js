@@ -28,12 +28,30 @@ const db = firebase.firestore();
   }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
 
+  // Reconstruye el historial completo conciliando 'history', 'last', 'created' y el total real de sellos (n + done*10)
   function parseHistory(c) {
-    var raw = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
-    return raw.map(function(entry) {
+    var raw = Array.isArray(c.history) ? c.history.slice() : [];
+    var items = raw.map(function(entry) {
       var parts = String(entry).trim().split(' ');
-      return { date: parts[0] || '', time: parts[1] || '', full: entry };
+      return { date: parts[0] || '', time: parts[1] || '', inferred: false };
     }).filter(function(item) { return item.date !== ''; });
+
+    // Si tiene fecha de último sello ('last') y no está en el historial, agregarla
+    if (c.last && !items.some(function(i) { return i.date === c.last; })) {
+      items.push({ date: c.last, time: '', inferred: false });
+    }
+
+    // Calcular cuántos sellos históricos reales tiene el cliente en total
+    var totalRealStamps = (Number(c.n) || 0) + ((Number(c.done) || 0) * 10);
+
+    // Si faltan sellos por registrar en fechas anteriores (anteriores a la creación del historial),
+    // se asignan a la fecha de registro del cliente (o fecha conocida) para que la suma cuadre al 100%
+    while (items.length < totalRealStamps) {
+      var fallbackDate = c.created || c.last || today();
+      items.push({ date: fallbackDate, time: '', inferred: true });
+    }
+
+    return items;
   }
 
   $('repDate').value = today();
@@ -63,7 +81,10 @@ const db = firebase.firestore();
       var hist = parseHistory(c);
       hist.forEach(function(h) {
         if (h.date === targetDate) {
-          stampedList.push(h.time ? (c.name + ' (' + h.time + ')') : c.name);
+          var label = c.name;
+          if (h.time) label += ' (' + h.time + ')';
+          else if (h.inferred) label += ' (sello inicial)';
+          stampedList.push(label);
         }
       });
       if (c.created === targetDate) {
@@ -101,7 +122,7 @@ const db = firebase.firestore();
     });
   });
 
-  // GENERADOR DE EXCEL ORDENADO, LIMPIO Y SIN ABREVIATURAS CONFUSAS
+  // GENERADOR DE EXCEL CON CONCILIACIÓN EXACTA DE TODOS LOS SELLOS
   $('exportExcel').addEventListener('click', function() {
     if (!docs.length) {
       say('No hay clientes registrados para exportar.', true);
@@ -110,6 +131,7 @@ const db = firebase.firestore();
 
     var dailyMap = {};
     var movementsList = [];
+    var grandTotalStamps = 0;
 
     function ensureDate(dt) {
       if (!dt) return;
@@ -130,14 +152,21 @@ const db = firebase.firestore();
         var regLabel = c.createdTime ? ('• ' + c.name + ' (' + c.createdTime + ' hrs)') : ('• ' + c.name);
         dailyMap[c.created].newCusts.push(regLabel);
       }
+
       var hist = parseHistory(c);
       hist.forEach(function(h) {
         ensureDate(h.date);
-        var stampLabel = h.time ? ('• ' + c.name + ' (' + h.time + ' hrs)') : ('• ' + c.name);
+        grandTotalStamps++;
+
+        var stampLabel = '• ' + c.name;
+        if (h.time) stampLabel += ' (' + h.time + ' hrs)';
+        else if (h.inferred) stampLabel += ' (registro anterior)';
+        
         dailyMap[h.date].stamps.push(stampLabel);
+
         movementsList.push({
           date: h.date,
-          time: h.time || 'Sin hora registrada',
+          time: h.time ? (h.time + ' hrs') : (h.inferred ? 'Registro anterior' : 'Sin hora registrada'),
           name: c.name || '',
           phone: c.phone || 'Sin celular',
           n: c.n || 0
@@ -154,7 +183,6 @@ const db = firebase.firestore();
       return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    // Convierte listas en líneas separadas dentro de la misma celda para lectura clara
     function listToLines(arr, emptyText) {
       if (!arr || !arr.length) return escHtml(emptyText);
       return arr.map(escHtml).join('<br style="mso-data-placement:same-cell;">');
@@ -166,21 +194,22 @@ const db = firebase.firestore();
       'th { background-color: #141008; color: #FFC21A; font-weight: bold; border: 1px solid #000000; padding: 10px 14px; text-align: center; }' +
       'td { border: 1px solid #888888; padding: 8px 12px; vertical-align: middle; }' +
       '.title { background-color: #F5B700; color: #141008; font-size: 13pt; font-weight: bold; text-align: left; padding: 11px 14px; border: 1px solid #000000; }' +
+      '.total-row { background-color: #FFF3CF; font-weight: bold; }' +
       '.center { text-align: center; }' +
       '.left { text-align: left; }' +
       '.even { background-color: #FFFDF5; }' +
       '.spacer { border: none; height: 22px; background: #FFFFFF; }' +
       '</style></head><body>';
 
-    // TABLA 1: RESUMEN HISTÓRICO DIARIO
+    // TABLA 1: RESUMEN HISTÓRICO POR DÍA (CON FILA DE TOTAL GENERAL)
     html += '<table>' +
       '<tr><td colspan="5" class="title">👑 THE CHOSEN ONE — RESUMEN HISTÓRICO POR DÍA</td></tr>' +
       '<tr>' +
         '<th style="width:130px;">Fecha</th>' +
         '<th style="width:140px;">Sellos Dados</th>' +
-        '<th style="width:320px;">Lista de Clientes con Sello</th>' +
+        '<th style="width:340px;">Lista de Clientes con Sello</th>' +
         '<th style="width:140px;">Clientes Nuevos</th>' +
-        '<th style="width:320px;">Lista de Clientes Nuevos</th>' +
+        '<th style="width:340px;">Lista de Clientes Nuevos</th>' +
       '</tr>';
 
     sortedDates.forEach(function(dt, idx) {
@@ -194,14 +223,22 @@ const db = firebase.firestore();
         '<td class="left">' + listToLines(info.newCusts, 'Ninguno') + '</td>' +
       '</tr>';
     });
+
+    html += '<tr class="total-row">' +
+      '<td class="center">TOTAL ACUMULADO</td>' +
+      '<td class="center">' + grandTotalStamps + ' sellos</td>' +
+      '<td class="left">Todos los sellos conciliados</td>' +
+      '<td class="center">' + sortedDocs.length + ' clientes</td>' +
+      '<td class="left">Total padrón activo</td>' +
+    '</tr>';
     html += '<tr><td colspan="5" class="spacer"></td></tr></table>';
 
     // TABLA 2: DETALLE DE SELLOS POR FECHA Y HORA
     html += '<table>' +
-      '<tr><td colspan="5" class="title">🕒 DETALLE DE SELLOS OTORGADOS (ORDEN CRONOLÓGICO)</td></tr>' +
+      '<tr><td colspan="5" class="title">🕒 DETALLE DE SELLOS OTORGADOS (TOTAL: ' + grandTotalStamps + ' SELLOS)</td></tr>' +
       '<tr>' +
         '<th style="width:130px;">Fecha</th>' +
-        '<th style="width:170px;">Hora</th>' +
+        '<th style="width:180px;">Hora</th>' +
         '<th style="width:280px;">Nombre del Cliente</th>' +
         '<th style="width:150px;">Celular</th>' +
         '<th style="width:160px;">Progreso Actual</th>' +
@@ -219,7 +256,7 @@ const db = firebase.firestore();
     });
     html += '<tr><td colspan="5" class="spacer"></td></tr></table>';
 
-    // TABLA 3: BASE GENERAL DE CLIENTES (ORDEN ALFABÉTICO A - Z)
+    // TABLA 3: BASE GENERAL DE CLIENTES
     html += '<table>' +
       '<tr><td colspan="7" class="title">📋 PADRÓN GENERAL DE CLIENTES (ORDEN ALFABÉTICO)</td></tr>' +
       '<tr>' +
@@ -228,15 +265,17 @@ const db = firebase.firestore();
         '<th style="width:150px;">Progreso Actual</th>' +
         '<th style="width:170px;">Tarjetas Completadas</th>' +
         '<th style="width:150px;">Fecha de Registro</th>' +
-        '<th style="width:170px;">Hora de Registro</th>' +
-        '<th style="width:320px;">Historial de Visitas</th>' +
+        '<th style="width:180px;">Hora de Registro</th>' +
+        '<th style="width:340px;">Historial de Visitas</th>' +
       '</tr>';
 
     sortedDocs.forEach(function(d, idx) {
       var c = d.data();
       var cls = idx % 2 === 1 ? ' class="even"' : '';
       var hist = parseHistory(c).map(function(h) {
-        return h.time ? ('• ' + h.date + ' (' + h.time + ' hrs)') : ('• ' + h.date);
+        if (h.time) return '• ' + h.date + ' (' + h.time + ' hrs)';
+        if (h.inferred) return '• ' + h.date + ' (registro anterior)';
+        return '• ' + h.date;
       });
       html += '<tr' + cls + '>' +
         '<td class="left"><b>' + escHtml(c.name || '') + '</b></td>' +
@@ -244,7 +283,7 @@ const db = firebase.firestore();
         '<td class="center">' + (c.n || 0) + ' de 10 sellos</td>' +
         '<td class="center">' + (c.done || 0) + '</td>' +
         '<td class="center">' + escHtml(c.created || '') + '</td>' +
-        '<td class="center">' + escHtml(c.createdTime || 'Sin hora registrada') + '</td>' +
+        '<td class="center">' + escHtml(c.createdTime ? (c.createdTime + ' hrs') : 'Sin hora registrada') + '</td>' +
         '<td class="left">' + listToLines(hist, 'Sin visitas') + '</td>' +
       '</tr>';
     });
@@ -260,7 +299,7 @@ const db = firebase.firestore();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    say('✅ Excel ordenado descargado correctamente.');
+    say('✅ Excel conciliado descargado (' + grandTotalStamps + ' sellos totales).');
   });
 
   function card(d) {
@@ -290,7 +329,10 @@ const db = firebase.firestore();
     b1.onclick = function() { 
       var t = today();
       var stampWithTime = t + ' ' + nowTime();
-      var hist = Array.isArray(c.history) ? c.history.slice() : (c.last ? [c.last] : []);
+      var hist = Array.isArray(c.history) ? c.history.slice() : [];
+      if (c.last && !hist.some(function(x) { return String(x).indexOf(c.last) === 0; })) {
+        hist.push(c.last);
+      }
       var alreadyToday = hist.some(function(x) { return String(x).indexOf(t) === 0; });
       if (!alreadyToday) hist.push(stampWithTime);
       patch(id, { n: n + 1, last: t, history: hist }, 'Sello sumado a ' + c.name + ' (' + nowTime() + ').'); 
