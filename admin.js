@@ -25,12 +25,15 @@ const db = firebase.firestore();
   }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
 
+  // Inicializar selector de fecha con hoy
+  $('repDate').value = today();
+
   function waLink(c) {
     var p = digits(c.phone); if (!p) return null;
     if (p.length === 9) p = '51' + p; // Prefijo Perú
-    var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club. ¡Te esperamos!';
-    if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! Tu hamburguesa o salchipapa gratis te espera.';
-    else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! Pídela en tu próxima visita.';
+    var t = 'Hola ' + c.name + ', tienes ' + c.n + ' de 10 sellos en The Chosen One Club 👑. ¡Te esperamos!';
+    if (c.n >= 10 && !c.r10) t = 'Hola ' + c.name + ', ¡completaste tu tarjeta! 👑 Tu hamburguesa o salchipapa gratis te espera.';
+    else if (c.n >= 5 && !c.r5) t = 'Hola ' + c.name + ', ¡tienes limonada gratis! 🥤 Pídela en tu próxima visita.';
     return 'https://wa.me/' + p + '?text=' + encodeURIComponent(t);
   }
 
@@ -39,6 +42,57 @@ const db = firebase.firestore();
       .then(function() { say(okMsg); })
       .catch(function() { say('Error al actualizar la base de datos.', true); });
   }
+
+  function renderReport() {
+    var targetDate = $('repDate').value || today();
+    var stampedNames = [];
+    var newNames = [];
+
+    docs.forEach(function(d) {
+      var c = d.data();
+      // Revisar historial de fechas o última fecha
+      var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
+      if (hist.indexOf(targetDate) > -1) {
+        stampedNames.push(c.name);
+      }
+      if (c.created === targetDate) {
+        newNames.push(c.name);
+      }
+    });
+
+    $('rStamps').textContent = stampedNames.length;
+    $('rNew').textContent = newNames.length;
+
+    var det = $('repDetails');
+    det.innerHTML = '';
+    
+    var p1 = el('p');
+    p1.innerHTML = '<b>👑 Sellos dados (' + stampedNames.length + '):</b> ' + (stampedNames.length ? stampedNames.join(', ') : 'Ninguno');
+    
+    var p2 = el('p');
+    p2.innerHTML = '<b>✨ Nuevos registrados (' + newNames.length + '):</b> ' + (newNames.length ? newNames.join(', ') : 'Ninguno');
+
+    det.appendChild(p1);
+    det.appendChild(p2);
+  }
+
+  $('repDate').addEventListener('change', renderReport);
+
+  $('copyRep').addEventListener('click', function() {
+    var d = $('repDate').value || today();
+    var sCount = $('rStamps').textContent;
+    var nCount = $('rNew').textContent;
+    var lines = $('repDetails').innerText;
+    var text = '📊 *REPORTE THE CHOSEN ONE (' + d + ')*\n' +
+               '• Sellos otorgados: ' + sCount + '\n' +
+               '• Clientes nuevos: ' + nCount + '\n\n' + lines;
+    
+    navigator.clipboard.writeText(text).then(function() {
+      say('Reporte copiado al portapapeles.');
+    }).catch(function() {
+      say('No se pudo copiar automáticamente.', true);
+    });
+  });
 
   function card(d) {
     var c = d.data(); var id = d.id; var n = c.n || 0; var doneToday = (c.last === today());
@@ -63,16 +117,23 @@ const db = firebase.firestore();
 
     var acts = el('div', 'acts');
     
-    // Sumar sello
+    // Sumar sello y guardar fecha en historial
     var b1 = el('button', null, 'Sumar sello'); b1.type = 'button'; b1.disabled = (n >= 10 || doneToday);
-    b1.onclick = function() { patch(id, { n: n + 1, last: today() }, 'Sello sumado a ' + c.name + '.'); };
+    b1.onclick = function() { 
+      var t = today();
+      var hist = Array.isArray(c.history) ? c.history.slice() : (c.last ? [c.last] : []);
+      if (hist.indexOf(t) === -1) hist.push(t);
+      patch(id, { n: n + 1, last: t, history: hist }, 'Sello sumado a ' + c.name + '.'); 
+    };
     acts.appendChild(b1);
 
-    // Restar sello
+    // Restar sello y quitar fecha de hoy del historial
     var bSub = el('button', 'alt', 'Restar sello'); bSub.type = 'button'; bSub.disabled = (n <= 0);
     bSub.onclick = function() { 
       var newCount = Math.max(0, n - 1);
-      patch(id, { n: newCount, last: '' }, 'Sello removido a ' + c.name + '.'); 
+      var t = today();
+      var hist = Array.isArray(c.history) ? c.history.filter(function(x) { return x !== t; }) : [];
+      patch(id, { n: newCount, last: '', history: hist }, 'Sello removido a ' + c.name + '.'); 
     };
     acts.appendChild(bSub);
 
@@ -145,6 +206,8 @@ const db = firebase.firestore();
     docs.forEach(function(d) { var c = d.data(); var n = c.n || 0; if ((n >= 10 && !c.r10) || (n >= 5 && !c.r5)) ready++; });
     $('sClients').textContent = docs.length; $('sReady').textContent = ready;
 
+    renderReport();
+
     var shown = docs.filter(function(d) {
       var c = d.data(); return !q || String(c.name).toLowerCase().indexOf(q) > -1 || digits(c.phone).indexOf(digits(q) || '§') > -1;
     });
@@ -164,7 +227,7 @@ const db = firebase.firestore();
     if (!name) { say('Escribe el nombre.', true); return; }
     
     db.collection('customers').add({
-      name: name, phone: phone, n: 0, r5: false, r10: false, last: '', done: 0, created: today()
+      name: name, phone: phone, n: 0, r5: false, r10: false, last: '', history: [], done: 0, created: today()
     }).then(function() {
       $('fn').value = ''; $('fp').value = ''; say(name + ' fue agregado.');
     });
