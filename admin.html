@@ -74,10 +74,10 @@
         <div class="stat"><b id="sReady">0</b><span>Premios por canjear</span></div>
       </div>
 
-      <!-- SECCIÓN DE REPORTE DIARIO -->
+      <!-- SECCIÓN DE REPORTE DIARIO E HISTÓRICO -->
       <div class="box">
         <div class="rep-head">
-          <h2 style="margin:0">📊 Reporte Diario</h2>
+          <h2 style="margin:0">📊 Reporte Diario e Histórico</h2>
           <input type="date" id="repDate">
         </div>
         <div class="stats" style="margin: 8px 0;">
@@ -85,7 +85,10 @@
           <div class="stat" style="padding: 8px 10px;"><b id="rNew" style="font-size:24px;">0</b><span>Clientes nuevos</span></div>
         </div>
         <div class="rep-list" id="repDetails"></div>
-        <button id="copyRep" type="button" class="alt small full" style="margin-top:10px;">📋 Copiar resumen del día</button>
+        <div class="acts" style="margin-top: 10px;">
+          <button id="copyRep" type="button" class="alt small">📋 Copiar día</button>
+          <button id="exportExcel" type="button" class="small">📥 Descargar Excel Completo</button>
+        </div>
       </div>
 
       <!-- AGREGAR CLIENTE -->
