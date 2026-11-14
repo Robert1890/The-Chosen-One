@@ -74,7 +74,6 @@
         <div class="stat"><b id="sReady">0</b><span>Premios por canjear</span></div>
       </div>
 
-      <!-- SECCIÓN DE REPORTE DIARIO E HISTÓRICO -->
       <div class="box">
         <div class="rep-head">
           <h2 style="margin:0">📊 Reporte Diario e Histórico</h2>
@@ -87,11 +86,10 @@
         <div class="rep-list" id="repDetails"></div>
         <div class="acts" style="margin-top: 10px;">
           <button id="copyRep" type="button" class="alt small">📋 Copiar día</button>
-          <button id="exportExcel" type="button" class="small">📥 Descargar Excel Completo</button>
+          <button id="exportExcel" type="button" class="small">📥 Descargar Excel (.xlsx)</button>
         </div>
       </div>
 
-      <!-- AGREGAR CLIENTE -->
       <div class="box">
         <h2>Agregar cliente</h2>
         <div class="fields">
@@ -111,6 +109,8 @@
 
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <!-- Librería oficial para generar archivos Excel .xlsx reales -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>
