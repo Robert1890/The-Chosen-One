@@ -17,6 +17,9 @@ const db = firebase.firestore();
   var docs = [], confirming = {}, editingCustomer = {};
 
   function today() { return new Date().toLocaleDateString('en-CA'); }
+  function nowTime() { 
+    return new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false }); 
+  }
   function say(t, bad) { 
     var m = $('msg'); m.textContent = t; m.style.color = bad ? 'var(--bad)' : 'var(--ink)'; 
   }
@@ -24,6 +27,15 @@ const db = firebase.firestore();
     var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; 
   }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
+
+  // Normaliza el historial (soporta fechas antiguas 'YYYY-MM-DD' y nuevas 'YYYY-MM-DD HH:mm')
+  function parseHistory(c) {
+    var raw = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
+    return raw.map(function(entry) {
+      var parts = String(entry).trim().split(' ');
+      return { date: parts[0] || '', time: parts[1] || '--:--', full: entry };
+    }).filter(function(item) { return item.date !== ''; });
+  }
 
   $('repDate').value = today();
 
@@ -44,31 +56,35 @@ const db = firebase.firestore();
 
   function renderReport() {
     var targetDate = $('repDate').value || today();
-    var stampedNames = [];
-    var newNames = [];
+    var stampedList = [];
+    var newList = [];
 
     docs.forEach(function(d) {
       var c = d.data();
-      var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
-      if (hist.indexOf(targetDate) > -1) {
-        stampedNames.push(c.name);
-      }
+      var hist = parseHistory(c);
+      
+      hist.forEach(function(h) {
+        if (h.date === targetDate) {
+          stampedList.push(h.time !== '--:--' ? (c.name + ' (' + h.time + ')') : c.name);
+        }
+      });
+
       if (c.created === targetDate) {
-        newNames.push(c.name);
+        newList.push(c.createdTime ? (c.name + ' (' + c.createdTime + ')') : c.name);
       }
     });
 
-    $('rStamps').textContent = stampedNames.length;
-    $('rNew').textContent = newNames.length;
+    $('rStamps').textContent = stampedList.length;
+    $('rNew').textContent = newList.length;
 
     var det = $('repDetails');
     det.innerHTML = '';
     
     var p1 = el('p');
-    p1.innerHTML = '<b>👑 Sellos dados (' + stampedNames.length + '):</b> ' + (stampedNames.length ? stampedNames.join(', ') : 'Ninguno');
+    p1.innerHTML = '<b>👑 Sellos dados (' + stampedList.length + '):</b> ' + (stampedList.length ? stampedList.join(', ') : 'Ninguno');
     
     var p2 = el('p');
-    p2.innerHTML = '<b>✨ Nuevos registrados (' + newNames.length + '):</b> ' + (newNames.length ? newNames.join(', ') : 'Ninguno');
+    p2.innerHTML = '<b>✨ Nuevos registrados (' + newList.length + '):</b> ' + (newList.length ? newList.join(', ') : 'Ninguno');
 
     det.appendChild(p1);
     det.appendChild(p2);
@@ -92,7 +108,7 @@ const db = firebase.firestore();
     });
   });
 
-  // GENERADOR DE ARCHIVO EXCEL REAL (.xlsx) CON 2 PESTAÑAS
+  // GENERADOR DE EXCEL PROFESIONAL (.xlsx) CON 3 PESTAÑAS Y COLUMNAS AUTOAJUSTADAS
   $('exportExcel').addEventListener('click', function() {
     if (!docs.length) {
       say('No hay clientes registrados para exportar.', true);
@@ -106,6 +122,8 @@ const db = firebase.firestore();
 
     try {
       var dailyMap = {};
+      var movementsList = [];
+
       function ensureDate(dt) {
         if (!dt) return;
         if (!dailyMap[dt]) dailyMap[dt] = { stamps: [], newCusts: [] };
@@ -115,59 +133,93 @@ const db = firebase.firestore();
         var c = d.data();
         if (c.created) {
           ensureDate(c.created);
-          dailyMap[c.created].newCusts.push(c.name);
+          var regLabel = c.createdTime ? (c.name + ' (' + c.createdTime + ')') : c.name;
+          dailyMap[c.created].newCusts.push(regLabel);
         }
-        var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
-        hist.forEach(function(dt) {
-          ensureDate(dt);
-          if (dailyMap[dt].stamps.indexOf(c.name) === -1) {
-            dailyMap[dt].stamps.push(c.name);
-          }
+
+        var hist = parseHistory(c);
+        hist.forEach(function(h) {
+          ensureDate(h.date);
+          var stampLabel = h.time !== '--:--' ? (c.name + ' (' + h.time + ')') : c.name;
+          dailyMap[h.date].stamps.push(stampLabel);
+
+          movementsList.push({
+            'Fecha': h.date,
+            'Hora': h.time,
+            'Cliente': c.name || '',
+            'Celular': c.phone || 'Sin celular',
+            'Sellos Totales Actuales': c.n || 0
+          });
         });
       });
 
+      // Ordenar fechas del resumen (más reciente primero)
       var sortedDates = Object.keys(dailyMap).sort().reverse();
 
-      // Pestaña 1: Historial Diario
+      // PESTAÑA 1: RESUMEN DIARIO CONSOLIDADO
       var dailyData = sortedDates.map(function(dt) {
         var info = dailyMap[dt];
         return {
           'Fecha': dt,
-          'Sellos Otorgados': info.stamps.length,
-          'Clientes con Sello': info.stamps.join(', ') || 'Ninguno',
-          'Clientes Nuevos': info.newCusts.length,
-          'Nombres Nuevos': info.newCusts.join(', ') || 'Ninguno'
+          'Total Sellos': info.stamps.length,
+          'Detalle Sellos (Cliente y Hora)': info.stamps.join(' | ') || 'Sin sellos',
+          'Total Nuevos': info.newCusts.length,
+          'Detalle Nuevos (Cliente y Hora)': info.newCusts.join(' | ') || 'Sin registros'
         };
       });
 
       if (!dailyData.length) {
-        dailyData.push({ 'Fecha': today(), 'Sellos Otorgados': 0, 'Clientes con Sello': 'Ninguno', 'Clientes Nuevos': 0, 'Nombres Nuevos': 'Ninguno' });
+        dailyData.push({ 'Fecha': today(), 'Total Sellos': 0, 'Detalle Sellos (Cliente y Hora)': 'Sin sellos', 'Total Nuevos': 0, 'Detalle Nuevos (Cliente y Hora)': 'Sin registros' });
       }
 
-      // Pestaña 2: Base de Clientes
+      // PESTAÑA 2: DETALLE CRONOLÓGICO DE MOVIMIENTOS (1 FILA POR SELLO)
+      movementsList.sort(function(a, b) {
+        var keyA = a['Fecha'] + ' ' + a['Hora'];
+        var keyB = b['Fecha'] + ' ' + b['Hora'];
+        return keyB.localeCompare(keyA);
+      });
+
+      if (!movementsList.length) {
+        movementsList.push({ 'Fecha': today(), 'Hora': '--:--', 'Cliente': 'Sin movimientos aún', 'Celular': '', 'Sellos Totales Actuales': 0 });
+      }
+
+      // PESTAÑA 3: BASE GENERAL DE CLIENTES
       var clientsData = docs.map(function(d) {
         var c = d.data();
-        var hist = Array.isArray(c.history) ? c.history : (c.last ? [c.last] : []);
+        var hist = parseHistory(c).map(function(h) {
+          return h.time !== '--:--' ? (h.date + ' ' + h.time) : h.date;
+        });
         return {
-          'Nombre': c.name || '',
+          'Nombre del Cliente': c.name || '',
           'Celular': c.phone || 'Sin celular',
           'Sellos Actuales': c.n || 0,
           'Tarjetas Completadas': c.done || 0,
           'Fecha Registro': c.created || '',
-          'Último Sello': c.last || '',
-          'Historial de Visitas': hist.join(', ')
+          'Hora Registro': c.createdTime || '--:--',
+          'Última Visita': c.last || 'Ninguna',
+          'Historial Completo (Fecha y Hora)': hist.join(' | ') || 'Sin visitas'
         };
       });
 
+      // Crear libro y hojas con ancho de columna automático profesional
       var wb = XLSX.utils.book_new();
-      var ws1 = XLSX.utils.json_to_sheet(dailyData);
-      var ws2 = XLSX.utils.json_to_sheet(clientsData);
 
-      XLSX.utils.book_append_sheet(wb, ws1, 'Historial Diario');
-      XLSX.utils.book_append_sheet(wb, ws2, 'Clientes');
+      function createStyledSheet(data, colWidths) {
+        var ws = XLSX.utils.json_to_sheet(data);
+        ws['!cols'] = colWidths.map(function(w) { return { wch: w }; });
+        return ws;
+      }
+
+      var ws1 = createStyledSheet(dailyData, [14, 14, 52, 14, 48]);
+      var ws2 = createStyledSheet(movementsList, [14, 10, 28, 16, 22]);
+      var ws3 = createStyledSheet(clientsData, [28, 16, 16, 20, 16, 14, 16, 55]);
+
+      XLSX.utils.book_append_sheet(wb, ws1, 'Resumen Diario');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Detalle por Hora');
+      XLSX.utils.book_append_sheet(wb, ws3, 'Base de Clientes');
 
       XLSX.writeFile(wb, 'Reporte_The_Chosen_One_' + today() + '.xlsx');
-      say('✅ Excel descargado correctamente.');
+      say('✅ Excel ordenado descargado correctamente.');
     } catch (err) {
       say('Error al generar Excel: ' + err.message, true);
     }
@@ -196,20 +248,24 @@ const db = firebase.firestore();
 
     var acts = el('div', 'acts');
     
+    // Sumar sello guardando Fecha + Hora exacta
     var b1 = el('button', null, 'Sumar sello'); b1.type = 'button'; b1.disabled = (n >= 10 || doneToday);
     b1.onclick = function() { 
       var t = today();
+      var stampWithTime = t + ' ' + nowTime();
       var hist = Array.isArray(c.history) ? c.history.slice() : (c.last ? [c.last] : []);
-      if (hist.indexOf(t) === -1) hist.push(t);
-      patch(id, { n: n + 1, last: t, history: hist }, 'Sello sumado a ' + c.name + '.'); 
+      var alreadyToday = hist.some(function(x) { return String(x).indexOf(t) === 0; });
+      if (!alreadyToday) hist.push(stampWithTime);
+      patch(id, { n: n + 1, last: t, history: hist }, 'Sello sumado a ' + c.name + ' (' + nowTime() + ').'); 
     };
     acts.appendChild(b1);
 
+    // Restar sello y quitar registro de hoy del historial
     var bSub = el('button', 'alt', 'Restar sello'); bSub.type = 'button'; bSub.disabled = (n <= 0);
     bSub.onclick = function() { 
       var newCount = Math.max(0, n - 1);
       var t = today();
-      var hist = Array.isArray(c.history) ? c.history.filter(function(x) { return x !== t; }) : [];
+      var hist = Array.isArray(c.history) ? c.history.filter(function(x) { return String(x).indexOf(t) !== 0; }) : [];
       patch(id, { n: newCount, last: '', history: hist }, 'Sello removido a ' + c.name + '.'); 
     };
     acts.appendChild(bSub);
@@ -302,9 +358,18 @@ const db = firebase.firestore();
     if (!name) { say('Escribe el nombre.', true); return; }
     
     db.collection('customers').add({
-      name: name, phone: phone, n: 0, r5: false, r10: false, last: '', history: [], done: 0, created: today()
+      name: name, 
+      phone: phone, 
+      n: 0, 
+      r5: false, 
+      r10: false, 
+      last: '', 
+      history: [], 
+      done: 0, 
+      created: today(),
+      createdTime: nowTime()
     }).then(function() {
-      $('fn').value = ''; $('fp').value = ''; say(name + ' fue agregado.');
+      $('fn').value = ''; $('fp').value = ''; say(name + ' fue agregado (' + nowTime() + ').');
     });
   });
 
